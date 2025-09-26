@@ -1,9 +1,9 @@
 from __future__ import annotations
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import DateTime, ForeignKey, String, Integer
+from sqlalchemy import DateTime, ForeignKey, String, Integer, JSON
 from ..core.db import Base
 
 
@@ -14,6 +14,7 @@ class Recording(Base):
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     duration_sec: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     transcription: Mapped[Optional[str]] = mapped_column(String(4000), nullable=True)
+    silence_marks: Mapped[Optional[Any]] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
