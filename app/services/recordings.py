@@ -48,3 +48,8 @@ async def mark_ready(
         call.status = CallStatus.ready
 
     await session.commit()
+
+
+async def get_recording_by_call_id(session: AsyncSession, *, call_id: uuid.UUID) -> Recording | None:
+    res = await session.execute(select(Recording).where(Recording.call_id == call_id))
+    return res.scalar_one_or_none()

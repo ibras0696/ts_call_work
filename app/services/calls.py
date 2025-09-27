@@ -1,6 +1,6 @@
 from __future__ import annotations
 import uuid
-from sqlalchemy import select
+from sqlalchemy import select, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models import Call
 
@@ -50,3 +50,27 @@ async def get_call(session: AsyncSession, call_id: uuid.UUID) -> dict | None:
         "created_at": r.created_at,
         "updated_at": r.updated_at,
     }
+
+
+async def search_calls(session: AsyncSession, *, query: str, limit: int = 50, offset: int = 0) -> tuple[int, list[dict]]:
+    q = f"%{query}%"
+    where = or_(Call.caller.ilike(q), Call.receiver.ilike(q))
+    total_stmt = select(func.count()).select_from(Call).where(where)
+    total = (await session.execute(total_stmt)).scalar_one()
+
+    stmt = select(*FIELDS).where(where).order_by(Call.created_at.desc()).limit(limit).offset(offset)
+    res = await session.execute(stmt)
+    rows = res.all()
+    items = [
+        {
+            "id": r.id,
+            "caller": r.caller,
+            "receiver": r.receiver,
+            "started_at": r.started_at,
+            "status": r.status,
+            "created_at": r.created_at,
+            "updated_at": r.updated_at,
+        }
+        for r in rows
+    ]
+    return int(total), items

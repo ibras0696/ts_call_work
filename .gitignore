@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Byte-compiled / optimized / DLL files
+*.so
+*.dll
+*.dylib
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+.envrc
+
+# Distribution / packaging
+build/
+dist/
+.eggs/
+*.egg-info/
+*.egg
+
+# PyInstaller
+*.spec
+
+# Unit test / coverage reports
+.coverage
+.coverage.*
+.cache/
+pytest_cache/
+htmlcov/
+.tox/
+.nox/
+
+# IDEs / Editors
+.vscode/
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# Mypy / Ruff
+.mypy_cache/
+.dmypy.json
+ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Docker
+*.pid
+
+# Audio test assets (optional)
+# tests/assets/*.wav
+
+# Recordings volume (if mounted locally)
+recordings/
+
+# Alembic cache
+migrations/__pycache__/

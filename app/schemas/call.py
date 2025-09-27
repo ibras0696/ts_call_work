@@ -2,7 +2,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from pydantic import BaseModel, Field, constr
-from typing import Optional
+from typing import Optional, List
 
 E164 = constr(pattern=r"^\+?[1-9]\d{1,14}$")
 
@@ -30,3 +30,8 @@ class CallOut(BaseModel):
 
     created_at: datetime
     updated_at: datetime
+
+
+class CallsPage(BaseModel):
+    total: int
+    items: List[CallOut]

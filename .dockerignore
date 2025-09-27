@@ -5,9 +5,30 @@ __pycache__/
 .venv/
 venv/
 .env
+*.env
 *.pyc
 *.pyo
 *.pyd
 *.log
 dist/
 build/
+.eggs/
+*.egg-info/
+
+# VCS
+.git/
+.gitignore
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+
+# Tests (optional)
+tests/
+
+# Host-only volume
+recordings/

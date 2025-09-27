@@ -11,6 +11,15 @@ class Settings(BaseSettings):
     APP_ENV: str = "dev"
     APP_NAME: str = "CallsService"
 
+    # Optional S3/MinIO settings for presigned URLs
+    S3_ENABLED: bool = False
+    S3_ENDPOINT_URL: str | None = None
+    S3_ACCESS_KEY: str | None = None
+    S3_SECRET_KEY: str | None = None
+    S3_BUCKET: str | None = None
+    S3_REGION: str | None = "us-east-1"
+    S3_SECURE: bool = False
+
     # Pydantic v2 settings config
     model_config = SettingsConfigDict(
         env_file=".env",
