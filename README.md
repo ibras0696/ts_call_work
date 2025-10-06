@@ -1,212 +1,261 @@
-<div align="center">
+# Calls Service 📞⚡
+Микросервис для управления звонками и записями: приём метаданных, загрузка аудио, асинхронная обработка, хранение в Postgres, маршрутизация через FastAPI и фоновые задачи в Celery.
 
-# Calls Service — микросервис обработки звонков
+<p align="left">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white">
+  <img alt="SQLAlchemy" src="https://img.shields.io/badge/SQLAlchemy-async-8C2728">
+  <img alt="Alembic" src="https://img.shields.io/badge/Alembic-migrations-444">
+  <img alt="Celery" src="https://img.shields.io/badge/Celery-5.x-37814A?logo=celery&logoColor=white">
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white">
+  <img alt="pydub" src="https://img.shields.io/badge/pydub%20%2B%20ffmpeg-audio-555">
+  <img alt="Lint" src="https://img.shields.io/badge/ruff-lint-0A7BBB">
+  <img alt="Types" src="https://img.shields.io/badge/mypy-strict-2A6DB2">
+  <img alt="Tests" src="https://img.shields.io/badge/pytest-ready-0A9EDC?logo=pytest&logoColor=white">
+</p>
 
-Управление звонками и записями: приём метаданных, загрузка аудио (WAV/MP3), асинхронная обработка (длительность, псевдотранскрипт, «тишина»), хранение в Postgres, маршрутизация через FastAPI и Celery.
+— Архитектурно: FastAPI + SQLAlchemy (async) + Alembic + Celery + Redis + PostgreSQL.  
+— Практики: строгая типизация, слои, DTO, миграции, Docker, dev-зависимости и статанализ.
 
-<br>
+---
 
-— Проект для быстрого знакомства с современным Python-стеком: FastAPI · SQLAlchemy async · Alembic · Celery · Redis · Docker —
+## Содержание
+- Что делает сервис
+- Архитектура и модель данных
+- API эндпоинты
+- Установка и запуск (локально и в Docker)
+- Переменные окружения
+- Миграции Alembic
+- Тесты и качество кода
+- Структура проекта
 
-</div>
+---
 
+## Что делает сервис
+- Создаёт сущность Call (звонок) с базовыми метаданными.
+- Принимает запись разговора (multipart upload) и сохраняет файл на диск.
+- Запускает фоновую обработку записи (Celery task), где можно считать длительность, тишину, базовый транскрипт и т.п.
+- Сохраняет результаты в сущности Recording и даёт ссылку на скачивание (через presigned URL при включённой S3-конфигурации).
 
-> Подробная документация: см. `docs/PROJECT_GUIDE.md` — архитектура, модель данных, конфигурация, жизненный цикл, API, обработка аудио, отладка и roadmap.
+Статусы звонка: created → processing → ready.
 
+---
 
-## 1. Что это и зачем
-Сервис принимает информацию о звонках, позволяет загрузить запись разговора и обрабатывает её в фоне (воркером), чтобы получить базовые метаданные. Это демонстрирует:
-- чистую асинхронную архитектуру (FastAPI + SQLAlchemy async),
-- фоновые задачи (Celery + Redis),
-- миграции БД (Alembic),
-- контейнеризацию и локальный запуск (Docker Compose),
-- аккуратную работу с DTO, чтобы избежать проблем lazy-loading в async ORM.
-
-
-## 2. Ключевая ценность для бизнеса
-- Оцифровка звонков: длительность и «тепловая» карта тишины — основа для аналитики качества.
-- Расширяемость: можно подключить настоящую транскрипцию (ASR), поиск по тексту, хранение в S3.
-- Надёжная схема: статусы звонка (created → processing → ready) и атомарные операции.
-
-
-## 3. Технологический стек
-- Язык/рантайм: Python 3.12
-- Веб: FastAPI, Uvicorn
-- БД: PostgreSQL 16, SQLAlchemy 2.x (async), Alembic
-- Очередь: Celery 5.x, Redis 7
-- Аудио: pydub + ffmpeg
-- Конфигурация: Pydantic v2, pydantic-settings
-- Контейнеры: Docker, Docker Compose
-- Опционально: S3/MinIO (boto3) для presigned URL
-
-
-## 4. Архитектура (высокоуровнево)
-
+## Архитектура (высокоуровнево)
 ```mermaid
 flowchart LR
-  subgraph Client
-    C1[POST /calls]
-    C2[POST /calls/{id}/recording]
-    C3[GET /calls/{id}]
-    C4[GET /calls?query]
-    C5[GET /calls/{id}/download]
-  end
-
-  C1 --> API
-  C2 --> API
-  C3 --> API
-  C4 --> API
-  C5 --> API
-
-  subgraph Backend
-    API[FastAPI]
-    CEL[Celery Worker]
-    RED[Redis (broker/results)]
-    DB[(PostgreSQL)]
-    FS[(Recordings Volume)]
-  end
-
-  API -- SQLAlchemy async --> DB
-  API -- save file --> FS
-  API -- send task --> RED --> CEL
-  CEL -- read file --> FS
-  CEL -- update meta --> DB
+  Client -->|HTTP| API[FastAPI]
+  API --> AppServices[Application/Services]
+  AppServices --> DB[(PostgreSQL)]
+  AppServices --> FS[(Recordings volume)]
+  API -->|enqueue| Celery[Celery Worker]
+  Celery --> FS
+  Celery --> DB
 ```
 
+- API: FastAPI роуты `/calls` и `/calls/{id}/recording`
+- БД: SQLAlchemy (async) + Alembic
+- Очередь: Celery (Redis broker/backend)
+- Файлы: локальный том (директория RECORDINGS_DIR)
+- Опционально: выдача presigned URL (S3/MinIO)
 
-## 5. Модель данных (упрощённо)
+---
 
-```mermaid
-erDiagram
-  CALL ||--|{ RECORDING : has
-  CALL {
-    uuid id PK
-    string caller
-    string receiver
-    timestamptz started_at
-    enum status  "created | processing | ready"
-    timestamptz created_at
-    timestamptz updated_at
-  }
-  RECORDING {
-    uuid id PK
-    uuid call_id FK
-    string filename
-    int duration_sec
-    string transcription
-    jsonb silence_marks
-    timestamptz created_at
-    timestamptz updated_at
-  }
-```
+## Модель данных (главное)
+- Call
+  - id (UUID), caller, receiver, started_at, status
+  - created_at, updated_at
+  - one-to-one: Recording
+- Recording
+  - id (UUID), call_id (unique)
+  - filename, duration_sec?, transcription?, silence_marks? (JSON)
+  - created_at, updated_at
 
+См. [app/models/call.py](app/models/call.py) и [app/models/recording.py](app/models/recording.py).
 
-## 6. Эндпойнты (основные)
+---
 
-- POST /calls — создать звонок
-- GET /calls/{id} — получить звонок по id
-- POST /calls/{id}/recording — загрузить запись (multipart/form-data: file)
-- GET /calls?query=...&limit=&offset= — поиск по caller/receiver
-- GET /calls/{id}/download — выдать presigned URL (501, если S3 не настроен)
+## API эндпоинты
+Быстрые интерактивные доки: /docs и /redoc (FastAPI).
 
+- POST /calls
+  - Тело (JSON): caller, receiver, started_at (ISO8601)
+  - Ответ: CallOut (id, caller, receiver, started_at, status, created_at, updated_at)
+- GET /calls/{call_id}
+  - Возвращает CallOut, 404 если не найден
+- GET /calls
+  - query (строка, min 2), limit (1..200), offset (>=0)
+  - Ответ: { total, items: CallOut[] }
+- POST /calls/{call_id}/recording
+  - multipart/form-data: file=@audio.wav
+  - Сохраняет файл, создаёт запись Recording, публикует Celery-задачу
+  - Ошибки: 409 (если уже есть запись), 422 (неподдерживаемое расширение)
+- GET /calls/{call_id}/download
+  - Возвращает { url } с presigned ссылкой (при включённом S3), иначе 501
 
-## 7. Быстрый старт (локально)
+Примеры:
 ```bash
-cp .env.example .env
-docker compose up -d --build
-# дождитесь healthcheck БД
-docker compose exec api alembic upgrade head
-```
-
-Проверка API (curl):
-```bash
-# создать звонок
-curl -s -X POST "http://localhost:8000/calls/" \
+# 1) Создать звонок
+curl -sX POST http://localhost:8000/calls \
   -H "Content-Type: application/json" \
-  -d '{"caller":"+79001234567","receiver":"+79007654321","started_at":"2025-09-27T12:00:00Z"}' | jq .
+  -d '{"caller":"+79001234567","receiver":"+79007654321","started_at":"2025-09-27T20:00:00Z"}'
 
-# получить по id
-curl -s http://localhost:8000/calls/<uuid> | jq .
-
-# загрузить запись
+# 2) Загрузить запись (multipart)
 CALL_ID=<uuid>
-curl -s -X POST "http://localhost:8000/calls/$CALL_ID/recording" \
-  -F "file=@/path/to/sample.wav" | jq .
+curl -sX POST "http://localhost:8000/calls/$CALL_ID/recording" \
+  -F "file=@./sample.wav"
 
-# проверить статус (ожидайте ready, воркер работает асинхронно)
-curl -s "http://localhost:8000/calls/$CALL_ID" | jq .
+# 3) Поиск
+curl -s "http://localhost:8000/calls?query=+7900&limit=10&offset=0"
 ```
 
-Поиск и скачивание:
+---
+
+## Установка и запуск
+
+Требования:
+- Python 3.12
+- FFmpeg (для pydub)
+- PostgreSQL, Redis
+
+### Вариант A: локально
 ```bash
-curl -s "http://localhost:8000/calls?query=+7900&limit=10&offset=0" | jq .
-curl -s "http://localhost:8000/calls/$CALL_ID/download" | jq .   # 501, если S3 не настроен
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m pip install --upgrade pip
+
+# Установка пакета и dev-инструментов из pyproject.toml
+pip install -e .[dev]
+
+# Экспорт переменных окружения или создайте .env (см. ниже)
+export DATABASE_URL="postgresql+asyncpg://app:app@localhost:5432/calls"
+export REDIS_URL="redis://localhost:6379/0"
+export RECORDINGS_DIR="./recordings"
+
+# Миграции
+alembic upgrade head
+
+# Запуск API
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Запуск Celery-воркера (автодискавер задач настроен на пакет app)
+celery -A app.core.celery_app.celery_app worker -l info
 ```
 
-
-## 8. Smoke‑тест через Python
-Скрипт генерирует WAV, создаёт звонок, загружает файл и ждёт статус ready.
+Поднять инфраструктуру быстро (пример):
 ```bash
-python3 -m pip install --user requests
-python3 scripts/smoke_test.py
+# Redis
+docker run -d --name redis -p 6379:6379 redis:7
+
+# PostgreSQL
+docker run -d --name pg \
+  -e POSTGRES_PASSWORD=app -e POSTGRES_USER=app -e POSTGRES_DB=calls \
+  -p 5432:5432 postgres:16
 ```
-Опционально: BASE_URL=http://127.0.0.1:8000 python3 scripts/smoke_test.py
 
+Важно: установите FFmpeg локально (например, `brew install ffmpeg` на macOS, `sudo apt-get install ffmpeg` на Debian/Ubuntu).
 
-## 9. Технические акценты и практики
-- Async SQLAlchemy: избегаем lazy‑load в HTTP-обработчиках — сервисы возвращают примитивные DTO.
-- Состояние звонка: created → processing (при загрузке) → ready (после обработки).
-- Аудио: pydub + ffmpeg; хранение файлов в volume (/recordings).
-- Celery: задачі идемпотентны, с короткими CPU‑операциями; результат — запись метаданных в БД.
-- Миграции: Alembic; ревизии короткие (важно для длины alembic_version).
-
-
-## 10. Траблшутинг
-- 404 Not Found на /calls/{id}/recording — перезапустите контейнеры (увеличили маршруты):
-  - docker compose restart api worker
-- 422 unsupported_extension — принимаются только .wav/.mp3
-- 409 recording_already_exists — запись для звонка уже существует (one‑to‑one)
-- presign_not_configured (501) — заполните S3_* в .env, если хотите presigned URL
-- Ошибки воркера — смотрите логи:
-  - docker compose logs -f worker
-
-
-
-## 11. Структура репозитория (основное)
+### Вариант B: Docker
+См. [Dockerfile](Dockerfile). Пример:
+```bash
+docker build -t calls-service .
+docker run --rm -p 8000:8000 \
+  -e DATABASE_URL="postgresql+asyncpg://app:app@host.docker.internal:5432/calls" \
+  -e REDIS_URL="redis://host.docker.internal:6379/0" \
+  -e RECORDINGS_DIR="/recordings" \
+  -v "$(pwd)/recordings:/recordings" \
+  calls-service
 ```
-.
-├── app/
-│   ├── api/
-│   │   ├── deps.py
-│   │   └── routes/
-│   │       ├── calls.py
-│   │       └── recordings.py
-│   ├── core/
-│   │   ├── celery_app.py
-│   │   ├── config.py
-│   │   └── db.py
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── call.py
-│   │   └── recording.py
-│   ├── schemas/
-│   │   └── call.py
-│   ├── services/
-│   │   ├── audio.py
-│   │   ├── calls.py
-│   │   ├── recordings.py
-│   │   └── storage.py
-│   └── main.py
-├── migrations/
-│   └── versions/
-│       ├── 20250926_0001_initial.py
-│       └── 20250927_0002_recording_silence_marks.py
-├── scripts/
-│   └── smoke_test.py
-├── alembic.ini
-├── docker-compose.yml
-├── Dockerfile
-├── pyproject.toml
-├── .env.example
-└── README.md
+
+---
+
+## Переменные окружения (.env)
+См. [app/core/config.py](app/core/config.py). Ключевые переменные:
+- DATABASE_URL — строка подключения SQLAlchemy async, например:
+  `postgresql+asyncpg://app:app@localhost:5432/calls`
+- REDIS_URL — адрес брокера/бэкенда Celery, например:
+  `redis://localhost:6379/0`
+- RECORDINGS_DIR — директория для сохранения аудио
+- Опционально S3/MinIO для presigned URL:
+  - S3_ENABLED (bool), S3_ENDPOINT_URL, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET, S3_REGION, S3_SECURE
+
+Пример .env:
+```env
+APP_ENV=dev
+APP_NAME=CallsService
+
+DATABASE_URL=postgresql+asyncpg://app:app@localhost:5432/calls
+REDIS_URL=redis://localhost:6379/0
+RECORDINGS_DIR=./recordings
+
+S3_ENABLED=false
+# S3_ENDPOINT_URL=http://localhost:9000
+# S3_ACCESS_KEY=...
+# S3_SECRET_KEY=...
+# S3_BUCKET=calls
+# S3_REGION=us-east-1
+# S3_SECURE=false
+```
+
+---
+
+## Миграции Alembic
+Проект включает Alembic-конфигурацию (см. `alembic.ini`, `migrations/`).
+```bash
+# создать новую ревизию (автогенерация по моделям)
+alembic revision --autogenerate -m "init schema"
+
+# применить миграции
+alembic upgrade head
+
+# откат
+alembic downgrade -1
+```
+
+---
+
+## Тесты и качество кода
+Dev-зависимости: pytest, httpx, mypy (strict), ruff.
+
+Команды:
+```bash
+pytest -q
+ruff check .
+mypy .
+```
+
+Опционально pre-commit:
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
+---
+
+## Структура проекта (основное)
+```
+app/
+  api/
+    routes/
+      calls.py         # CRUD/поиск, presigned download
+      recordings.py    # загрузка файла записи
+    deps.py            # зависимости FastAPI (DB-сессия и т.д.)
+  core/
+    config.py          # конфиг через pydantic-settings
+    db.py              # SQLAlchemy async engine/session + Base
+    celery_app.py      # Celery app и конфиг
+  models/
+    call.py            # Call, CallStatus
+    recording.py       # Recording
+  services/
+    calls.py           # бизнес-операции по Call
+    recordings.py      # операции по Recording
+    storage.py         # сохранение файлов, presigned URL
+  main.py              # точка входа FastAPI
+migrations/            # Alembic env + версии
+alembic.ini
+pyproject.toml
+Dockerfile
 ```
